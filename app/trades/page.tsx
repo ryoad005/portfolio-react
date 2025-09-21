@@ -169,29 +169,32 @@ export default function TradesPage() {
 
   // 保存（差分送信）
   const handleSave = async () => {
+    // 追加
     for (const id of addedIds) {
       const row = rows.find((r) => r.id === id);
       if (!row) continue;
-      const payload = { ...row };
-      delete (payload as any)._isNew;
+      const { _isNew: _ignored1, ...rest } = row;           // ★ any不要
+      const payload: Trade = rest;                           // ★ 型がTradeに確定
       await fetch("/api/trades", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
     }
+    // 更新
     for (const id of editedIds) {
       if (addedIds.has(id)) continue;
       const row = rows.find((r) => r.id === id);
       if (!row) continue;
-      const payload = { ...row };
-      delete (payload as any)._isNew;
+      const { _isNew: _ignored2, ...rest } = row;           // ★ any不要
+      const payload: Trade = rest;
       await fetch(`/api/trades/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
     }
+    // 削除
     for (const id of deletedIds) {
       await fetch(`/api/trades/${id}`, { method: "DELETE" });
     }

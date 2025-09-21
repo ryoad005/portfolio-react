@@ -1,18 +1,30 @@
 import { NextResponse } from "next/server";
 import { Trade } from "@/types/trade";
 
-const g = globalThis as any;
-const db = (g.__TRADE_DB__ ??= []) as Trade[];
+declare global {
+  // eslint-disable-next-line no-var
+  var __TRADE_DB__: Trade[] | undefined;
+}
 
-// GET /api/trades/:id
-export async function GET(_: Request, { params }: { params: { id: string } }) {
+function getDb(): Trade[] {
+  globalThis.__TRADE_DB__ ??= [];
+  return globalThis.__TRADE_DB__!;
+}
+
+type Params = { params: { id: string } };
+
+type Ok = { ok: true };
+type Err = { error: string };
+
+export async function GET(_: Request, { params }: Params): Promise<NextResponse<Trade | Err>> {
+  const db = getDb();
   const row = db.find((r) => r.id === params.id);
   if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json(row);
 }
 
-// PUT /api/trades/:id
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
+export async function PUT(req: Request, { params }: Params): Promise<NextResponse<Ok | Err>> {
+  const db = getDb();
   const body = (await req.json()) as Trade;
   const idx = db.findIndex((r) => r.id === params.id);
   if (idx < 0) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -20,8 +32,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   return NextResponse.json({ ok: true });
 }
 
-// DELETE /api/trades/:id
-export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_: Request, { params }: Params): Promise<NextResponse<Ok | Err>> {
+  const db = getDb();
   const idx = db.findIndex((r) => r.id === params.id);
   if (idx < 0) return NextResponse.json({ error: "not found" }, { status: 404 });
   db.splice(idx, 1);
