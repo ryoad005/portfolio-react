@@ -1,160 +1,243 @@
 "use client";
-
+import { Box, Button, Stack, Typography } from "@mui/material";
+import {
+  DataGrid,
+  GridColDef,
+  GridRowSelectionModel,
+  GridRowId,
+} from "@mui/x-data-grid";
 import { useEffect, useMemo, useState } from "react";
-import { Box, Button, MenuItem, Stack, TextField, Typography } from "@mui/material";
-import { DataGrid, GridColDef, GridPaginationModel } from "@mui/x-data-grid";
-import { format } from "date-fns";
-import Papa from "papaparse";
 import { Trade } from "@/types/trade";
-import { useRouter } from "next/navigation";
 
-type ApiResult = { total: number; rows: Trade[] };
-const PAGE_SIZE_DEFAULT = 20;
+type RowWithFlags = Trade & { _isNew?: boolean }; // 新規行フラグ
 
 export default function TradesPage() {
-  const router = useRouter();
-
-  const [rows, setRows] = useState<Trade[]>([]);
-  const [total, setTotal] = useState(0);
+  const [rows, setRows] = useState<RowWithFlags[]>([]);
+  const [originalRows, setOriginalRows] = useState<Trade[]>([]); // キャンセル用
   const [loading, setLoading] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
-  // フィルタ
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState<string>("");
-  const [from, setFrom] = useState<string>("");
-  const [to, setTo] = useState<string>("");
-
-  // ページング
-  const [pagination, setPagination] = useState<GridPaginationModel>({
-    page: 0,
-    pageSize: PAGE_SIZE_DEFAULT,
+  // v8: 選択モデルはオブジェクト { type, ids }
+  const [selection, setSelection] = useState<GridRowSelectionModel>({
+    type: "include",
+    ids: new Set(),
   });
 
-  const columns: GridColDef[] = useMemo(
+  // 差分管理
+  const [addedIds, setAddedIds] = useState<Set<GridRowId>>(new Set());
+  const [editedIds, setEditedIds] = useState<Set<GridRowId>>(new Set());
+  const [deletedIds, setDeletedIds] = useState<Set<GridRowId>>(new Set());
+
+  // 一覧取得
+  const fetchRows = async () => {
+    setLoading(true);
+    const res = await fetch("/api/trades?page=0&pageSize=200", {
+      cache: "no-store",
+    });
+    const json = await res.json();
+    setRows(json.rows);
+    setOriginalRows(json.rows);
+    setLoading(false);
+    setDirty(false);
+    setAddedIds(new Set());
+    setEditedIds(new Set());
+    setDeletedIds(new Set());
+    setSelection({ type: "include", ids: new Set() });
+  };
+
+  useEffect(() => {
+    fetchRows();
+  }, []);
+
+  // 編集時（ローカル反映のみ）
+  const processRowUpdate = (newRow: RowWithFlags, oldRow: RowWithFlags) => {
+    const recalced: RowWithFlags = {
+      ...newRow,
+      amount: Number(newRow.quantity) * Number(newRow.price),
+    };
+    if (!addedIds.has(recalced.id)) {
+      const next = new Set(editedIds);
+      next.add(recalced.id);
+      setEditedIds(next);
+    }
+    setDirty(true);
+    return recalced;
+  };
+
+  // 新規行追加
+  const handleAddRow = () => {
+    const id = `tmp-${Date.now()}`;
+    const newRow: RowWithFlags = {
+      id,
+      tradeDate: new Date().toISOString().slice(0, 10),
+      counterparty: "",
+      type: "BUY",
+      itemSku: "",
+      itemName: "",
+      quantity: 0,
+      price: 0,
+      amount: 0,
+      status: "NEW",
+      _isNew: true,
+    };
+    setRows((prev) => [newRow, ...prev]);
+    const next = new Set(addedIds);
+    next.add(id);
+    setAddedIds(next);
+    setDirty(true);
+  };
+
+  // 削除
+  const handleDeleteSelected = () => {
+    if (selection.ids.size === 0) return;
+    if (!confirm(`${selection.ids.size}件を削除します。よろしいですか？`)) return;
+
+    setRows((prev) => prev.filter((r) => !selection.ids.has(r.id)));
+
+    const nextAdded = new Set(addedIds);
+    const nextDeleted = new Set(deletedIds);
+    const nextEdited = new Set(editedIds);
+
+    selection.ids.forEach((id) => {
+      if (nextAdded.has(id)) {
+        nextAdded.delete(id); // 未保存行は消すだけ
+      } else {
+        nextDeleted.add(id); // 既存行は削除フラグへ
+      }
+      nextEdited.delete(id); // 編集フラグは不要に
+    });
+
+    setAddedIds(nextAdded);
+    setDeletedIds(nextDeleted);
+    setEditedIds(nextEdited);
+
+    setDirty(true);
+    setSelection({ type: "include", ids: new Set() }); // 選択解除
+  };
+
+  // 保存
+  const handleSave = async () => {
+    // 追加
+    for (const id of addedIds) {
+      const row = rows.find((r) => r.id === id);
+      if (!row) continue;
+      const payload = { ...row };
+      delete (payload as any)._isNew;
+      await fetch("/api/trades", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
+
+    // 更新
+    for (const id of editedIds) {
+      if (addedIds.has(id)) continue;
+      const row = rows.find((r) => r.id === id);
+      if (!row) continue;
+      const payload = { ...row };
+      delete (payload as any)._isNew;
+      await fetch(`/api/trades/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
+
+    // 削除
+    for (const id of deletedIds) {
+      await fetch(`/api/trades/${id}`, { method: "DELETE" });
+    }
+
+    await fetchRows(); // リロード
+  };
+
+  // キャンセル
+  const handleCancel = () => {
+    setRows(originalRows);
+    setAddedIds(new Set());
+    setEditedIds(new Set());
+    setDeletedIds(new Set());
+    setDirty(false);
+    setSelection({ type: "include", ids: new Set() });
+  };
+
+  const columns: GridColDef<RowWithFlags>[] = useMemo(
     () => [
-      { field: "tradeDate", headerName: "取引日", flex: 1 },
-      { field: "counterparty", headerName: "取引先", flex: 1.2 },
-      { field: "type", headerName: "種別", flex: 0.8 },
-      { field: "itemSku", headerName: "SKU", flex: 1 },
-      { field: "itemName", headerName: "商品名", flex: 1.2 },
-      { field: "quantity", headerName: "数量", type: "number", flex: 0.8 },
-      { field: "price", headerName: "単価", type: "number", flex: 0.8 },
-      { field: "amount", headerName: "金額", type: "number", flex: 1 },
-      { field: "status", headerName: "ステータス", flex: 1 },
+      { field: "tradeDate", headerName: "取引日", flex: 1, editable: true },
+      { field: "counterparty", headerName: "取引先", flex: 1.2, editable: true },
+      { field: "type", headerName: "種別", flex: 0.8, editable: true },
+      { field: "itemSku", headerName: "SKU", flex: 1, editable: true },
+      { field: "itemName", headerName: "商品名", flex: 1.2, editable: true },
+      {
+        field: "quantity",
+        headerName: "数量",
+        type: "number",
+        flex: 0.8,
+        editable: true,
+      },
+      {
+        field: "price",
+        headerName: "単価",
+        type: "number",
+        flex: 0.8,
+        editable: true,
+      },
+      {
+        field: "amount",
+        headerName: "金額",
+        type: "number",
+        flex: 1,
+      }, // 自動計算のみ
+      { field: "status", headerName: "ステータス", flex: 1, editable: true },
     ],
     []
   );
 
-  const fetchRows = async () => {
-    setLoading(true);
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    if (status) params.set("status", status);
-    if (from) params.set("from", from);
-    if (to) params.set("to", to);
-    params.set("page", String(pagination.page));
-    params.set("pageSize", String(pagination.pageSize));
-
-    const res = await fetch(`/api/trades?${params.toString()}`, { cache: "no-store" });
-    const json: ApiResult = await res.json();
-    setRows(json.rows);
-    setTotal(json.total);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    // 初回＆ページング変更時に検索
-    fetchRows();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pagination.page, pagination.pageSize]);
-
-  const onSearch = () => {
-    // ページ先頭に戻して再検索
-    setPagination(p => ({ ...p, page: 0 }));
-    fetchRows();
-  };
-
-  const onClear = () => {
-    setQ("");
-    setStatus("");
-    setFrom("");
-    setTo("");
-    setPagination({ page: 0, pageSize: PAGE_SIZE_DEFAULT });
-    fetchRows();
-  };
-
-  const exportCSV = () => {
-    const csv = Papa.unparse(
-      rows.map(r => ({
-        取引日: r.tradeDate,
-        取引先: r.counterparty,
-        種別: r.type,
-        SKU: r.itemSku,
-        商品名: r.itemName,
-        数量: r.quantity,
-        単価: r.price,
-        金額: r.amount,
-        ステータス: r.status,
-      }))
-    );
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `trades_${format(new Date(), "yyyyMMdd_HHmmss")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" sx={{ mb: 2 }}>取引一覧</Typography>
+      <Typography variant="h5" sx={{ mb: 2 }}>
+        取引一覧（追加・編集・削除 → 一括保存/キャンセル）
+      </Typography>
 
-      {/* フィルタ */}
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mb: 2 }}>
-        <TextField label="検索（取引先/SKU/商品名）" value={q} onChange={e => setQ(e.target.value)} size="small" />
-        <TextField label="ステータス" select value={status} onChange={e => setStatus(e.target.value)} size="small" sx={{ minWidth: 180 }}>
-          <MenuItem value="">（すべて）</MenuItem>
-          <MenuItem value="NEW">NEW</MenuItem>
-          <MenuItem value="CONFIRMED">CONFIRMED</MenuItem>
-          <MenuItem value="CANCELLED">CANCELLED</MenuItem>
-        </TextField>
-        <TextField label="From" type="date" value={from} onChange={e => setFrom(e.target.value)} size="small" InputLabelProps={{ shrink: true }} />
-        <TextField label="To"   type="date" value={to}   onChange={e => setTo(e.target.value)}   size="small" InputLabelProps={{ shrink: true }} />
-        <Button variant="contained" onClick={onSearch}>検索</Button>
-        <Button variant="outlined" onClick={onClear}>クリア</Button>
-        <Button variant="text" onClick={exportCSV}>CSV出力</Button>
+      <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+        <Button variant="contained" onClick={handleAddRow}>
+          ＋ 追加
+        </Button>
+        <Button
+          variant="outlined"
+          color="error"
+          onClick={handleDeleteSelected}
+          disabled={selection.ids.size === 0}
+        >
+          削除
+        </Button>
+        <Button variant="contained" onClick={handleSave} disabled={!dirty}>
+          保存
+        </Button>
+        <Button variant="outlined" onClick={handleCancel} disabled={!dirty}>
+          キャンセル
+        </Button>
       </Stack>
 
-      {/* テーブル */}
-      <div style={{ height: 540, width: "100%" }}>
-        <DataGrid
+      <div style={{ height: 600, width: "100%" }}>
+        <DataGrid<RowWithFlags>
           rows={rows}
           columns={columns}
           getRowId={(r) => r.id}
           loading={loading}
-          rowCount={total}
-          paginationMode="server"
-          paginationModel={pagination}
-          onPaginationModelChange={setPagination}
-          pageSizeOptions={[10, 20, 50]}
-                  // ▼ ダブルクリックで詳細へ
-          onRowDoubleClick={(params) => {
-            router.push(`/trades/${params.id}`);
-          }}
-
-          // （保険）環境によっては onRowDoubleClick が効かない場合があるので、
-          // ダブルクリック検知のフォールバック：
-          onRowClick={(params, event) => {
-            if ((event as React.MouseEvent).detail === 2) {
-              router.push(`/trades/${params.id}`);
-            }
-          }}
-
-          // 見た目のアクセント
+          rowSelectionModel={selection}
+          onRowSelectionModelChange={(m) =>
+            setSelection(m as GridRowSelectionModel)
+          }
+          processRowUpdate={processRowUpdate}
+          experimentalFeatures={{ newEditingApi: true } as any}
           sx={{
-            cursor: "pointer",
-            "& .MuiDataGrid-row:hover": { backgroundColor: "action.hover" },
+            "& .MuiDataGrid-row.Mui-selected": { backgroundColor: "action.selected" },
+            "& .MuiDataGrid-row:hover": {
+              backgroundColor: "action.hover",
+              cursor: "cell",
+            },
           }}
         />
       </div>
