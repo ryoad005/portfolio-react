@@ -17,7 +17,7 @@ type NavItem = {
 };
 
 const items: NavItem[] = [
-  { label: "メニュー", href: "/", icon: <DashboardIcon />, match: (p) => p === "/" },
+  { label: "アプリ概要", href: "/", icon: <DashboardIcon />, match: (p) => p === "/" },
   { label: "取引一覧", href: "/trades", icon: <ListAltIcon />, match: (p) => p.startsWith("/trades") },
 ];
 
