@@ -1,28 +1,29 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { Trade } from "@/types/trade";
 
 const g = globalThis as any;
 const db = (g.__TRADE_DB__ ??= []) as Trade[];
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const row = db.find(r => r.id === params.id);
-  return row ? NextResponse.json(row) : NextResponse.json({ message: "Not Found" }, { status: 404 });
+// GET /api/trades/:id
+export async function GET(_: Request, { params }: { params: { id: string } }) {
+  const row = db.find((r) => r.id === params.id);
+  if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
+  return NextResponse.json(row);
 }
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const idx = db.findIndex(r => r.id === params.id);
-  if (idx === -1) return NextResponse.json({ message: "Not Found" }, { status: 404 });
-
-  const patch = await req.json() as Partial<Trade>;
-  const merged = { ...db[idx], ...patch };
-  merged.amount = Number(merged.quantity) * Number(merged.price);
-  db[idx] = merged;
-  return NextResponse.json(merged);
+// PUT /api/trades/:id
+export async function PUT(req: Request, { params }: { params: { id: string } }) {
+  const body = (await req.json()) as Trade;
+  const idx = db.findIndex((r) => r.id === params.id);
+  if (idx < 0) return NextResponse.json({ error: "not found" }, { status: 404 });
+  db[idx] = body;
+  return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  const idx = db.findIndex(r => r.id === params.id);
-  if (idx === -1) return NextResponse.json({ message: "Not Found" }, { status: 404 });
+// DELETE /api/trades/:id
+export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+  const idx = db.findIndex((r) => r.id === params.id);
+  if (idx < 0) return NextResponse.json({ error: "not found" }, { status: 404 });
   db.splice(idx, 1);
   return NextResponse.json({ ok: true });
 }
