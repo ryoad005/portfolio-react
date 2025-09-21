@@ -24,6 +24,47 @@ const PRODUCTS_BY_CATEGORY: Record<TradeType, string[]> = {
 
 type RowWithFlags = Trade & { _isNew?: boolean };
 
+// ===== CSV 出力ユーティリティ =====
+function exportToCsv(rows: RowWithFlags[]) {
+  // 出力したい列（見出しと値の取得方法）
+  const columns: { header: string; getter: (r: RowWithFlags) => string | number }[] = [
+    { header: "取引日",   getter: (r) => r.tradeDate },
+    { header: "取引先",   getter: (r) => r.counterparty },
+    { header: "種別",     getter: (r) => r.type },
+    { header: "商品名",   getter: (r) => r.itemName },
+    { header: "数量",     getter: (r) => r.quantity },
+    { header: "単価",     getter: (r) => r.price },
+    { header: "金額",     getter: (r) => r.amount },
+  ];
+
+  const esc = (v: string | number) => {
+    const s = String(v ?? "");
+    // カンマ / ダブルクォート / 改行 が含まれる場合は " で囲み、内部の " は "" にエスケープ
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    // ※ 数字はそのまま（カンマ区切りなどの整形はしない）
+  };
+
+  const header = columns.map((c) => esc(c.header)).join(",");
+  const body = rows
+    .map((r) => columns.map((c) => esc(c.getter(r))).join(","))
+    .join("\r\n");
+
+  const csv = `${header}\r\n${body}`;
+  // Excel でも文字化けしないよう BOM 付き UTF-8
+  const bom = new Uint8Array([0xef, 0xbb, 0xbf]);
+  const blob = new Blob([bom, csv], { type: "text/csv;charset=utf-8;" });
+
+  const ts = dayjs().format("YYYYMMDD_HHmmss");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `trades_${ts}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function TradesPage() {
   const [rows, setRows] = useState<RowWithFlags[]>([]);
   const [originalRows, setOriginalRows] = useState<Trade[]>([]);
@@ -167,6 +208,14 @@ export default function TradesPage() {
     setSelection({ type: "include", ids: new Set() });
   };
 
+  // CSV 出力
+  const handleExportCsv = () => {
+    const ids = selection.ids;
+    const target =
+      ids.size > 0 ? rows.filter((r) => ids.has(r.id)) : rows;
+    exportToCsv(target);
+  };
+
   // 取引日セル（YYYY/MM/DD）
   const renderTradeDateEditCell = (
     params: GridRenderEditCellParams<RowWithFlags, string>
@@ -230,13 +279,21 @@ export default function TradesPage() {
         取引一覧（追加・編集・削除 → 一括保存/キャンセル）
       </Typography>
 
-      <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+      <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: "wrap" }}>
         <Button variant="contained" onClick={handleAddRow}>＋ 追加</Button>
-        <Button variant="outlined" color="error" onClick={handleDeleteSelected} disabled={selection.ids.size === 0}>
+        <Button
+          variant="outlined"
+          color="error"
+          onClick={handleDeleteSelected}
+          disabled={selection.ids.size === 0}
+        >
           削除
         </Button>
         <Button variant="contained" onClick={handleSave} disabled={!dirty}>保存</Button>
         <Button variant="outlined" onClick={handleCancel} disabled={!dirty}>キャンセル</Button>
+        <Button variant="outlined" onClick={handleExportCsv}>
+          CSV出力（選択／全件）
+        </Button>
       </Stack>
 
       <div style={{ height: 600, width: "100%" }}>
@@ -248,6 +305,7 @@ export default function TradesPage() {
           rowSelectionModel={selection}
           onRowSelectionModelChange={(m) => setSelection(m as GridRowSelectionModel)}
           processRowUpdate={processRowUpdate}
+          checkboxSelection
           sx={{
             "& .MuiDataGrid-row.Mui-selected": { backgroundColor: "action.selected" },
             "& .MuiDataGrid-row:hover": { backgroundColor: "action.hover", cursor: "cell" },
