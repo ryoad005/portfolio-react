@@ -18,13 +18,13 @@
     "@mui/material": "^7.3.2",
     "@mui/x-data-grid": "^8.11.3",
     "@mui/x-date-pickers": "^8.11.3",
+    "@prisma/client": "^5.19.0",
     "date-fns": "^4.1.0",
     "dayjs": "^1.11.18",
     "next": "15.5.3",
     "papaparse": "^5.5.3",
     "react": "19.1.0",
-    "react-dom": "19.1.0",
-    "@prisma/client": "^5.19.0"
+    "react-dom": "19.1.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -35,9 +35,9 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
-    "tailwindcss": "^4",
-    "typescript": "^5",
     "prisma": "^5.19.0",
-    "ts-node": "^10.9.2"
+    "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5"
   }
 }

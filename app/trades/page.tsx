@@ -17,7 +17,19 @@ import { useEffect, useMemo, useState } from "react";
 import { Trade, TradeType } from "@/types/trade";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 dayjs.extend(customParseFormat);
+import utc from "dayjs/plugin/utc";
+dayjs.extend(utc);
 
+// 日時（ISO 8601形式の文字列へ変換）
+const toIsoOrNull = (v?: string | null) => {
+  if (!v) return null;
+  // まずは "YYYY/MM/DD HH:mm" 固定フォーマットで厳密パース
+  const d1 = dayjs(v, "YYYY/MM/DD HH:mm", true);
+  if (d1.isValid()) return d1.toDate().toISOString();
+  // 次に ISO などの汎用パース
+  const d2 = dayjs(v);
+  return d2.isValid() ? d2.toDate().toISOString() : null;
+};
 
 // ===== マスタ =====
 const CATEGORY_OPTIONS: readonly TradeType[] = ["文房具", "家電", "食品"] as const;
@@ -25,6 +37,13 @@ const PRODUCTS_BY_CATEGORY: Record<TradeType, string[]> = {
   文房具: ["ノート", "ペン", "消しゴム", "定規", "ホッチキス"],
   家電: ["ドライヤー", "掃除機", "電子レンジ", "炊飯器", "扇風機"],
   食品: ["りんご", "パン", "コーヒー", "チョコレート", "牛乳"],
+};
+
+// "YYYY/MM/DD HH:mm" や ISO を受け取って、"YYYY-MM-DDTHH:mm:ss"（Zなし）に正規化
+const toNaive = (v?: string | Date | null) => {
+  if (!v) return null;
+  const d = dayjs(v);
+  return d.isValid() ? d.format("YYYY-MM-DDTHH:mm:ss") : null;
 };
 
 type RowWithFlags = Trade & { _isNew?: boolean };
@@ -219,12 +238,24 @@ export default function TradesPage() {
       const row = snapshotRows.find((r) => r.id === id);
       if (!row) continue;
       const { _isNew: _ignored1, ...rest } = row;
-      const payload: Trade = rest;
-      await fetch("/api/trades", {
+//      const payload: Trade = rest;
+      const payload: Trade = {
+        ...rest,
+        tradeDate: toIsoOrNull(rest.tradeDate)!, // ← ISO化
+        quantity: Number(rest.quantity),
+        price: Number(rest.price),
+        amount: Number(rest.amount ?? Number(rest.quantity) * Number(rest.price)),
+      };
+      
+      const res = await fetch("/api/trades", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(`POST /api/trades failed: ${res.status} ${msg}`);
+      }
     }
 
     // 4) 更新
@@ -233,12 +264,23 @@ export default function TradesPage() {
       const row = snapshotRows.find((r) => r.id === id);
       if (!row) continue;
       const { _isNew: _ignored2, ...rest } = row;
-      const payload: Trade = rest;
-      await fetch(`/api/trades/${id}`, {
+//      const payload: Trade = rest;
+      const payload: Trade = {
+        ...rest,
+        tradeDate: toIsoOrNull(rest.tradeDate)!, // ← ISO化
+        quantity: Number(rest.quantity),
+        price: Number(rest.price),
+        amount: Number(rest.amount ?? Number(rest.quantity) * Number(rest.price)),
+      };
+      const res = await fetch(`/api/trades/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(`PUT /api/trades/${id} failed: ${res.status} ${msg}`);
+      }
     }
 
     // 5) 削除
@@ -281,7 +323,7 @@ export default function TradesPage() {
 
     return (
       <DateTimePicker
-        value={value}
+        value={value ? dayjs.utc(value) : null}
         format="YYYY/MM/DD HH:mm"
         onChange={(newValue) => {
           if (!newValue || !newValue.isValid()) {
@@ -310,10 +352,10 @@ export default function TradesPage() {
       const raw = params.row.tradeDate; // 行データから直接参照
       if (!raw) return "";
 
-      // ISO か "YYYY/MM/DD" の両方をサポート
-      const d1 = dayjs(raw);
+      // DBは「タイムゾーンなし」= 文字通りの時刻を保持している前提。
+      // ここでは UTC として解釈して"そのままの数字"を表示する。
+      const d1 = dayjs.utc(raw);
       if (d1.isValid()) return d1.format("YYYY/MM/DD HH:mm");
-
       const d2 = dayjs(String(raw), "YYYY/MM/DD HH:mm", true);
       return d2.isValid() ? d2.format("YYYY/MM/DD HH:mm") : String(raw);
     },
