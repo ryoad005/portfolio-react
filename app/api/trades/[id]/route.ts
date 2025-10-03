@@ -1,42 +1,37 @@
 import { NextResponse, NextRequest } from "next/server";
-import { Trade } from "@/types/trade";
-
-declare global {
-  // eslint-disable-next-line no-var
-  var __TRADE_DB__: Trade[] | undefined;
-}
-
-function getDb(): Trade[] {
-  globalThis.__TRADE_DB__ ??= [];
-  return globalThis.__TRADE_DB__!;
-}
+import { prisma } from "@/lib/prisma";
 
 type Ok = { ok: true };
 type Err = { error: string };
 
-export async function GET(_: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params; // ★ await が必要
-  const db = getDb();
-  const row = db.find((r) => r.id === id);
-  if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json(row);
+// Next App Router: 第二引数で { params } を直接受け取る
+export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const id = params.id;
+
+    // 受け取った body から id を除外してから update に渡す
+    const body = await req.json();
+    const { id: _ignore, ...payload } = body;
+
+    const data = {
+      ...payload,
+      tradeDate: new Date(payload.tradeDate),
+      amount: Number(payload.quantity) * Number(payload.price),
+    };
+
+    await prisma.trade.update({ where: { id }, data });
+    return NextResponse.json({ ok: true } satisfies Ok);
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "failed" } satisfies Err, { status: 400 });
+  }
 }
 
-export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
-  const db = getDb();
-  const body = (await req.json()) as Trade;
-  const idx = db.findIndex((r) => r.id === id);
-  if (idx < 0) return NextResponse.json({ error: "not found" }, { status: 404 });
-  db[idx] = body;
-  return NextResponse.json({ ok: true });
-}
-
-export async function DELETE(_: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
-  const db = getDb();
-  const idx = db.findIndex((r) => r.id === id);
-  if (idx < 0) return NextResponse.json({ error: "not found" }, { status: 404 });
-  db.splice(idx, 1);
-  return NextResponse.json({ ok: true });
+export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const id = params.id;
+    await prisma.trade.delete({ where: { id } });
+    return NextResponse.json({ ok: true } satisfies Ok);
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "failed" } satisfies Err, { status: 400 });
+  }
 }

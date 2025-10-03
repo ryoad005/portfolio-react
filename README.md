@@ -67,3 +67,35 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+
+## PostgreSQL + Docker セットアップ
+
+1. Docker を起動し、プロジェクト直下で DB を起動します。
+
+```bash
+docker compose up -d db
+```
+
+2. 依存関係をインストールし、Prisma を生成＆マイグレーションします。
+
+```bash
+npm install
+npm run prisma:generate
+npm run prisma:migrate
+```
+
+3. 初期データ（サンプル）を投入します（任意）。
+
+```bash
+npm run db:seed
+```
+
+4. 開発サーバーを起動します。
+
+```bash
+npm run dev
+```
+
+- DB 接続は `.env` の `DATABASE_URL` を使用します。
+- API は `app/api/trades` に実装されており、一覧（GET）、登録（POST）、更新（PUT）、削除（DELETE）に対応しています。
